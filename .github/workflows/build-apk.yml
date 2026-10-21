@@ -1,16 +1,12 @@
-name: Build GoalRadar AI APK
+name: Build GoalRadar AI 1.1 APK
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'GoalRadarAI_v1_OneUpload.zip'
+      - 'GoalRadarAI_v1_1_OneUpload.zip'
       - '.github/workflows/build-apk.yml'
-      - 'app/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - 'gradle.properties'
 
 permissions:
   contents: read
@@ -23,20 +19,19 @@ jobs:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Expand uploaded Android project
+      - name: Extract GoalRadar 1.1 project
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f GoalRadarAI_v1_OneUpload.zip ]; then
-            # Keep the actual checked-in workflow; do not unpack the old copy.
-            unzip -qo GoalRadarAI_v1_OneUpload.zip -d . -x '.github/workflows/*'
-          fi
+          test -f GoalRadarAI_v1_1_OneUpload.zip
+          # Keep this fixed checked-in workflow instead of extracting any previous copy.
+          unzip -qo GoalRadarAI_v1_1_OneUpload.zip -d . -x '.github/workflows/*'
           test -f settings.gradle
           test -f app/build.gradle
-          echo 'Android source files are ready.'
+          test -f app/src/main/java/com/goalradar/ai/RadarService.java
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -44,45 +39,53 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Test pressure engine and goal detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/goalradar-test
+          javac -encoding UTF-8 -d /tmp/goalradar-test \
+            tests/stubs/org/json/JSONObject.java \
+            tests/stubs/com/goalradar/ai/Stats.java \
+            tests/stubs/com/goalradar/ai/MatchSample.java \
+            app/src/main/java/com/goalradar/ai/RiskEngine.java \
+            app/src/main/java/com/goalradar/ai/GoalChangeDetector.java \
+            tests/RiskEngineSmoke.java
+          java -cp /tmp/goalradar-test com.goalradar.ai.RiskEngineSmoke
+
       - name: Verify preinstalled Android SDK
         shell: bash
         run: |
           set -euo pipefail
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls "$ANDROID_HOME/cmdline-tools" || true
-          # GitHub ubuntu-24.04 runners normally have API 35 and Build Tools 35.
-          # Only call the already-preinstalled sdkmanager if a package is missing.
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" ] || [ ! -d "$ANDROID_HOME/build-tools/35.0.0" ]; then
             test -x "$SDKMANAGER"
-            yes | "$SDKMANAGER" --licenses >/dev/null || true
             "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
           fi
           test -f "$ANDROID_HOME/platforms/android-35/android.jar"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
-          echo 'Android API 35 and Build Tools 35.0.0 are ready.'
 
       - name: Set up Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
-      - name: Build debug APK
+      - name: Build Android debug APK
         shell: bash
         run: gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Prepare APK
+      - name: Export APK
         shell: bash
         run: |
           set -euo pipefail
           test -s app/build/outputs/apk/debug/app-debug.apk
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GoalRadarAI-v1-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GoalRadarAI-v1.1-debug.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GoalRadarAI-v1-debug
-          path: dist/GoalRadarAI-v1-debug.apk
+          name: GoalRadarAI-v1.1-debug
+          path: dist/GoalRadarAI-v1.1-debug.apk
           if-no-files-found: error
           retention-days: 14
